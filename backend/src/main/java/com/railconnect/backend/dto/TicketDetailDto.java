@@ -36,6 +36,9 @@ public class TicketDetailDto {
     private String refundStatus;
     private String cancellationDate;
 
+    // Status message for UI display
+    private String message;
+
     @Data
     @Builder
     @NoArgsConstructor

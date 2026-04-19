@@ -12,14 +12,14 @@ const StatusBadge = ({ status }) => {
     const cfg = {
         CONFIRMED: { text: 'text-green-400', bg: 'bg-green-500/10 border-green-500/30', dot: 'bg-green-400', icon: CheckCircle2 },
         BOOKED:    { text: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/30', dot: 'bg-yellow-400', icon: AlertCircle },
-        CANCELLED: { text: 'text-red-400',   bg: 'bg-red-500/10 border-red-500/30',   dot: 'bg-red-400',   icon: XCircle },
+        CANCELLED: { text: 'text-green-400', bg: 'bg-green-500/10 border-green-500/30', dot: 'bg-green-400', icon: CheckCircle2 },
     };
     const c = cfg[status] || cfg.BOOKED;
     const Icon = c.icon;
     return (
         <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border text-sm font-bold tracking-wide ${c.bg} ${c.text}`}>
             <Icon className="h-4 w-4" />
-            {status}
+            {status === 'CANCELLED' ? 'CANCELLED ✓' : status}
         </span>
     );
 };
@@ -71,8 +71,11 @@ const TicketDetails = () => {
         setCancelSuccess(false);
         try {
             const res = await api.post(`/tickets/cancel/${id}`);
+            // Immediately update state with the fresh data from the backend
             setTicket(res.data);
             setCancelSuccess(true);
+            // Scroll to top so user sees the green badge
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         } catch (e) {
             alert(e.response?.data?.message || 'Cancellation failed. Please try again.');
         } finally {
@@ -215,23 +218,23 @@ const TicketDetails = () => {
             )}
 
             {/* Refund banner (if cancelled) */}
-            {isCancelled && ticket.refundAmount != null && (
-                <div className={`glass-panel p-6 mb-6 border-2 ${ticket.refundStatus === 'PENDING' ? 'border-yellow-500/40' : 'border-blue-500/40'}`}>
+            {isCancelled && (
+                <div className={`glass-panel p-6 mb-6 border-2 ${ticket.refundStatus === 'PENDING' || !ticket.refundStatus ? 'border-green-500/40' : 'border-blue-500/40'}`}>
                     {cancelSuccess && (
                         <div className="bg-green-500/10 border border-green-500/50 text-green-400 px-4 py-3 rounded-lg mb-4 text-sm font-bold text-center">
-                            Cancellation successful. Refund will be processed shortly.
+                            {ticket.message || 'Cancellation successful. Refund will be processed shortly.'}
                         </div>
                     )}
                     <div className="flex items-center gap-4">
-                        <div className={`h-12 w-12 rounded-full flex items-center justify-center ${ticket.refundStatus === 'PENDING' ? 'bg-yellow-500/20' : 'bg-blue-500/20'}`}>
-                            <RefreshCw className={`h-6 w-6 ${ticket.refundStatus === 'PENDING' ? 'text-yellow-400 animate-spin' : 'text-blue-400'}`} />
+                        <div className={`h-12 w-12 rounded-full flex items-center justify-center ${ticket.refundStatus === 'COMPLETED' ? 'bg-blue-500/20' : 'bg-green-500/20'}`}>
+                            <RefreshCw className={`h-6 w-6 ${ticket.refundStatus === 'COMPLETED' ? 'text-blue-400' : 'text-green-400 animate-spin'}`} />
                         </div>
                         <div>
-                            <p className={`font-bold text-lg ${ticket.refundStatus === 'PENDING' ? 'text-yellow-400' : 'text-blue-400'}`}>
-                                {ticket.refundStatus === 'PENDING' ? 'Refund Processing…' : 'Refund Completed ✓'}
+                            <p className={`font-bold text-lg ${ticket.refundStatus === 'COMPLETED' ? 'text-blue-400' : 'text-green-400'}`}>
+                                {ticket.refundStatus === 'COMPLETED' ? 'Refund Completed ✓' : 'Refund Processing…'}
                             </p>
                             <p className="text-gray-400 text-sm">
-                                ₹{ticket.refundAmount?.toFixed(2)} (80% of fare)
+                                ₹{(ticket.refundAmount ?? ticket.totalFare * 0.8)?.toFixed(2)} (80% of fare)
                                 {ticket.cancellationDate && ` · Cancelled ${ticket.cancellationDate}`}
                             </p>
                         </div>

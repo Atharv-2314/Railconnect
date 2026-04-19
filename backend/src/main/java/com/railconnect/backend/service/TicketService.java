@@ -80,11 +80,14 @@ public class TicketService {
             throw new RuntimeException("Cancellation Failed by DBMS: " + errorMsg);
         }
 
-        // Reload fresh state from DB (since SP updated it)
+        // Reload fresh state from DB (since function updated it)
         Ticket updatedTicket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new RuntimeException("Ticket missing after cancellation"));
 
-        return buildDetail(updatedTicket, updatedTicket.getUser());
+        TicketDetailDto result = buildDetail(updatedTicket, updatedTicket.getUser());
+        double refund = result.getRefundAmount() != null ? result.getRefundAmount() : (ticket.getTotalFare() != null ? ticket.getTotalFare() * 0.8 : 0);
+        result.setMessage(String.format("Ticket cancelled successfully! Refund of ₹%.2f has been initiated.", refund));
+        return result;
     }
 
     /** Returns auto-promoted waitlist tickets the user hasn't seen yet. */

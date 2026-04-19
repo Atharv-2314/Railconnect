@@ -28,15 +28,15 @@ ON CONFLICT (username) DO NOTHING;
 -- Linked to user_id 2–6 (passengers above)
 -- =============================================================
 
-INSERT INTO Passenger (user_id, name, age, gender, phone)
-SELECT u.user_id, p.name, p.age, p.gender, p.phone
+INSERT INTO Passenger (user_id, name, age, gender, phone, gov_id)
+SELECT u.user_id, p.name, p.age, p.gender, p.phone, p.govid
 FROM (VALUES
-  ('priya.sharma@gmail.com', 'Priya Sharma',  28, 'Female', '9876543210'),
-  ('arjun.mehta@gmail.com',  'Arjun Mehta',   34, 'Male',   '9988776655'),
-  ('neha.kapoor@gmail.com',  'Neha Kapoor',   22, 'Female', '9871234567'),
-  ('rohit.verma@gmail.com',  'Rohit Verma',   45, 'Male',   '9765432109'),
-  ('sunita.rao@gmail.com',   'Sunita Rao',    31, 'Female', '9654321098')
-) AS p(uname, name, age, gender, phone)
+  ('priya.sharma@gmail.com', 'Priya Sharma',  28, 'Female', '9876543210', 'GOV_PRIYA'),
+  ('arjun.mehta@gmail.com',  'Arjun Mehta',   34, 'Male',   '9988776655', 'GOV_ARJUN'),
+  ('neha.kapoor@gmail.com',  'Neha Kapoor',   22, 'Female', '9871234567', 'GOV_NEHA'),
+  ('rohit.verma@gmail.com',  'Rohit Verma',   45, 'Male',   '9765432109', 'GOV_ROHIT'),
+  ('sunita.rao@gmail.com',   'Sunita Rao',    31, 'Female', '9654321098', 'GOV_SUNITA')
+) AS p(uname, name, age, gender, phone, govid)
 JOIN App_User u ON u.username = p.uname
 WHERE NOT EXISTS (
     SELECT 1 FROM Passenger pa WHERE pa.user_id = u.user_id
@@ -248,8 +248,8 @@ BEGIN
     WHERE schedule_id = v_schedule_id AND status = 'AVAILABLE' AND class = '2AC'
     ORDER BY seat_id LIMIT 1;
 
-    INSERT INTO Ticket (pnr_number, user_id, schedule_id, status, total_fare)
-    VALUES ('PNR20260001', v_user_id, v_schedule_id, 'BOOKED', 3245.00)
+    INSERT INTO Ticket (pnr_number, user_id, schedule_id, status, is_notified, total_fare)
+    VALUES ('PNR20260001', v_user_id, v_schedule_id, 'BOOKED', TRUE, 3245.00)
     RETURNING ticket_id INTO v_ticket_id;
 
     INSERT INTO Ticket_Passenger (ticket_id, passenger_id) VALUES (v_ticket_id, v_passenger_id);
@@ -283,8 +283,8 @@ BEGIN
     WHERE schedule_id = v_schedule_id AND status = 'AVAILABLE' AND class = '2AC'
     ORDER BY seat_id LIMIT 1;
 
-    INSERT INTO Ticket (pnr_number, user_id, schedule_id, status, total_fare)
-    VALUES ('PNR20260002', v_user_id, v_schedule_id, 'BOOKED', 855.00)
+    INSERT INTO Ticket (pnr_number, user_id, schedule_id, status, is_notified, total_fare)
+    VALUES ('PNR20260002', v_user_id, v_schedule_id, 'BOOKED', TRUE, 855.00)
     RETURNING ticket_id INTO v_ticket_id;
 
     INSERT INTO Ticket_Passenger (ticket_id, passenger_id) VALUES (v_ticket_id, v_passenger_id);
@@ -316,8 +316,8 @@ BEGIN
     WHERE schedule_id = v_schedule_id AND status = 'AVAILABLE' AND class = '3AC'
     ORDER BY seat_id LIMIT 1;
 
-    INSERT INTO Ticket (pnr_number, user_id, schedule_id, status, total_fare)
-    VALUES ('PNR20260003', v_user_id, v_schedule_id, 'BOOKED', 1120.00)
+    INSERT INTO Ticket (pnr_number, user_id, schedule_id, status, is_notified, total_fare)
+    VALUES ('PNR20260003', v_user_id, v_schedule_id, 'BOOKED', TRUE, 1120.00)
     RETURNING ticket_id INTO v_ticket_id;
 
     INSERT INTO Ticket_Passenger (ticket_id, passenger_id) VALUES (v_ticket_id, v_passenger_id);

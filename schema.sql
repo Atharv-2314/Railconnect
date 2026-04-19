@@ -18,6 +18,7 @@ CREATE TABLE Passenger (
     age INT,
     gender VARCHAR(10),
     phone VARCHAR(20),
+    gov_id VARCHAR(20), -- Aadhaar/PAN for Anti-Scalper check
     CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES App_User(user_id) ON DELETE CASCADE
 );
 
@@ -91,7 +92,8 @@ CREATE TABLE Ticket (
     user_id INT NOT NULL,
     schedule_id INT NOT NULL,
     booking_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    status VARCHAR(20) DEFAULT 'BOOKED' CHECK (status IN ('BOOKED', 'CANCELLED')),
+    status VARCHAR(20) DEFAULT 'BOOKED' CHECK (status IN ('BOOKED', 'CONFIRMED', 'CANCELLED')),
+    is_notified BOOLEAN DEFAULT TRUE, -- FALSE for auto-promoted waitlist tickets
     total_fare DECIMAL(10, 2),
     CONSTRAINT fk_ticket_user FOREIGN KEY (user_id) REFERENCES App_User(user_id),
     CONSTRAINT fk_ticket_schedule FOREIGN KEY (schedule_id) REFERENCES Schedule(schedule_id)

@@ -54,6 +54,9 @@ public class TriggerInitializer implements ApplicationRunner {
             String sql4 = loadSql("static/reboot_viva_data.sql");
             executeSqlScript(sql4);
 
+            String sql5 = loadSql("static/advanced_dbms_constructs.sql");
+            executeSqlScript(sql5);
+
             // 5. Seed Users Programmatically (Reliable BCrypt)
             seedUsers();
 
@@ -61,6 +64,7 @@ public class TriggerInitializer implements ApplicationRunner {
             log.info("[TriggerInitializer] ✅ v_user_booking_summary view refreshed (join-explosion fix applied).");
             log.info("[TriggerInitializer] ✅ v_schedule_occupancy view refreshed.");
             log.info("[TriggerInitializer] ✅ bank_schema initialized.");
+            log.info("[TriggerInitializer] ✅ DBMS Expansion (Rule of 3 constructs) loaded.");
             log.info("[TriggerInitializer] ✅ fix_trains executed.");
             log.info("[TriggerInitializer] ✅ Viva Reboot complete.");
         } catch (Exception e) {

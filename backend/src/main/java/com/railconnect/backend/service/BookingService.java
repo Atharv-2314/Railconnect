@@ -1,6 +1,5 @@
 package com.railconnect.backend.service;
 
-import com.railconnect.backend.dto.BookingPassengerDto;
 import com.railconnect.backend.dto.BookingRequest;
 import com.railconnect.backend.dto.BookingResponse;
 import com.railconnect.backend.entities.*;
@@ -10,10 +9,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
-import java.util.ArrayList;
+import java.util.stream.Collectors;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.jdbc.core.JdbcTemplate;
 import java.util.List;
-import java.util.UUID;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -21,17 +21,12 @@ public class BookingService {
 
     private final AppUserRepository appUserRepository;
     private final ScheduleRepository scheduleRepository;
-    private final SeatRepository seatRepository;
-    private final TicketRepository ticketRepository;
-    private final SeatAllocationRepository seatAllocationRepository;
-    private final PassengerRepository passengerRepository;
-    private final TicketPassengerRepository ticketPassengerRepository;
-    private final PaymentRepository paymentRepository;
-    private final RewardService rewardService;
-    private final BankService bankService;
     private final RefundRetryService refundRetryService;
 
-    @Transactional // Uses READ_COMMITTED default; row-level pessimistic locks (SELECT FOR UPDATE) handle concurrency
+    private final JdbcTemplate jdbcTemplate;
+    private final ObjectMapper objectMapper;
+
+    @Transactional // High-level isolation boundary (READ_COMMITTED) wrapper for SP
     @SuppressWarnings("null")
     public BookingResponse bookTicket(BookingRequest request) {
         
@@ -45,152 +40,71 @@ public class BookingService {
             throw new RuntimeException("Mismatch between selected seats and passenger count.");
         }
 
-        // ─── ANTI-SCALPER: FAMILY VELOCITY LIMIT (Rule of 6) ───────────────────────
-        // Count all seats this user has successfully booked in the last 10 minutes
-        LocalDateTime tenMinutesAgo = LocalDateTime.now().minusMinutes(10);
-        Long recentSeats = ticketRepository.countRecentSeatsByUser(user, tenMinutesAgo);
-        if (recentSeats == null) recentSeats = 0L;
-        if (recentSeats + request.getSeatIds().size() > 6) {
-            throw new RuntimeException(
-                "Booking limit exceeded. Standard limit is 6 seats per 10 minutes to ensure fair access. " +
-                "You have already booked " + recentSeats + " seat(s) in the last 10 minutes."
-            );
+        // 1. Serialize Passengers to JSONB
+        String tempPassengersJson;
+        try {
+            tempPassengersJson = objectMapper.writeValueAsString(request.getPassengers());
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize passengers payload", e);
         }
+        final String passengersJson = tempPassengersJson;
 
-        // ─── ANTI-SCALPER: IDENTITY LOCK (One Person, One Seat per Journey Date) ──
-        for (BookingPassengerDto rp : request.getPassengers()) {
-            if (rp.getGovId() != null && !rp.getGovId().isBlank()) {
-                boolean duplicate = ticketRepository.existsActiveBookingForGovIdOnDate(
-                    rp.getGovId().trim(), schedule.getJourneyDate()
-                );
-                if (duplicate) {
-                    throw new RuntimeException(
-                        "Identity conflict: Gov ID '" + rp.getGovId() +
-                        "' already has an active booking on " + schedule.getJourneyDate() +
-                        ". One seat per journey date per identity is enforced."
-                    );
-                }
-            }
-        }
+        // 2. Comma-separated Seat IDs
+        final String seatIdsCSV = request.getSeatIds().stream()
+                .map(String::valueOf)
+                .collect(Collectors.joining(","));
 
-        // Generate PNR
-        String pnr = "PNR" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
-
-        // Prepare Ticket
-        Ticket ticket = Ticket.builder()
-                .pnrNumber(pnr)
-                .user(user)
-                .schedule(schedule)
-                .status("BOOKED")
-                .totalFare(0.0) // Will calculate below
-                .build();
+        // 3. Delegate ALL complex logic into Stored Function (Locks, Limit, Fares)
+        String sql = "SELECT * FROM fn_book_ticket(?, ?, ?, ?)";
         
-        ticket = ticketRepository.save(ticket);
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+            sql,
+            user.getUserId(),
+            schedule.getScheduleId(),
+            seatIdsCSV,
+            passengersJson
+        );
 
-        List<String> allocatedSeatNames = new ArrayList<>();
-        double totalFare = 0.0;
+        if (rows == null || rows.isEmpty()) {
+            throw new RuntimeException("Function execution failed: No result");
+        }
 
-        // Process strictly requested seats
-        for (int i = 0; i < request.getSeatIds().size(); i++) {
-            Long requestedSeatId = request.getSeatIds().get(i);
-            BookingPassengerDto rp = request.getPassengers().get(i);
+        Map<String, Object> resultRow = rows.get(0);
+        String pnr = (String) resultRow.get("p_pnr");
+        String errorMsg = (String) resultRow.get("p_err_msg");
 
-            // SELECT FOR UPDATE locking explicit seat row.
-            Seat assignedSeat = seatRepository.findByIdForUpdate(requestedSeatId)
-                    .orElseThrow(() -> new RuntimeException("Seat ID not found: " + requestedSeatId));
-
-            if (!"AVAILABLE".equals(assignedSeat.getStatus())) {
-                throw new CustomConcurrencyException("Seat " + assignedSeat.getSeatClass() + "-" + assignedSeat.getSeatNumber() + " is already BOOKED by another user. Transaction aborted.");
+        if (errorMsg != null) {
+            // SP enforces Rules: Scale-limit, Identify check, locks
+            if (errorMsg.contains("concurrency")) {
+                throw new CustomConcurrencyException(errorMsg);
             }
-
-            assignedSeat.setStatus("BOOKED");
-            seatRepository.save(assignedSeat);
-
-            // Ad-hoc insert passenger (with gov_id for Anti-Scalper)
-            Passenger passenger = Passenger.builder()
-                    .user(user)
-                    .name(rp.getName())
-                    .age(rp.getAge())
-                    .gender(rp.getGender())
-                    .govId(rp.getGovId() != null ? rp.getGovId().trim() : null)
-                    .build();
-            passenger = passengerRepository.save(passenger);
-
-            // Create Ticket_Passenger mapping
-            TicketPassenger.TicketPassengerId tpId = new TicketPassenger.TicketPassengerId(ticket.getTicketId(), passenger.getPassengerId());
-            TicketPassenger tp = TicketPassenger.builder()
-                    .id(tpId)
-                    .ticket(ticket)
-                    .passenger(passenger)
-                    .build();
-            ticketPassengerRepository.save(tp);
-
-            // Create allocation
-            SeatAllocation allocation = SeatAllocation.builder()
-                    .ticket(ticket)
-                    .seat(assignedSeat)
-                    .status("BOOKED")
-                    .build();
-            seatAllocationRepository.save(allocation);
-
-            allocatedSeatNames.add("C" + assignedSeat.getCoachNumber() + "-S" + assignedSeat.getSeatNumber());
-            
-            // Logically map fare based on the specific physical seat tier grabbed
-            totalFare += calculateFare(assignedSeat.getSeatClass(), schedule.getRoute().getTotalDistance());
+            throw new RuntimeException(errorMsg);
         }
 
-        // Phase 34: Calculate Carbon Point Discount
-        double discountPercent = 0.0;
-        if (request.getPointsUsed() != null && request.getPointsUsed() > 0) {
-            discountPercent = Math.min((request.getPointsUsed() / 1000.0) * 5.0, 20.0);
-            rewardService.deductCarbonPoints(user, ticket, request.getPointsUsed());
+        // Extract fare and carbon points directly from DB Function result
+        double totalFare = 0.0;
+        int carbonPoints = 0;
+        if (resultRow.get("p_total_fare") != null) {
+            totalFare = ((Number) resultRow.get("p_total_fare")).doubleValue();
+        }
+        if (resultRow.get("p_carbon_points") != null) {
+            carbonPoints = ((Number) resultRow.get("p_carbon_points")).intValue();
         }
 
-        double finalFare = totalFare - (totalFare * discountPercent / 100.0);
-        ticket.setTotalFare(finalFare);
-        ticketRepository.save(ticket);
-
-        // Phase 20 Simplification: Immediate logically true payment mapping
-        Payment payment = Payment.builder()
-                .ticket(ticket)
-                .amount(finalFare)
-                .paymentMode("CREDIT_CARD")
-                .status("SUCCESS")
-                .build();
-        paymentRepository.save(payment);
-
-        // Phase 18: Credit the central bank
-        bankService.creditBank(finalFare);
-
-        // Phase 19: Attempt pending refund settlement processing safely after crediting the bank
+        // 4. Fallback execution for unrelated services
         try {
             refundRetryService.retryPendingRefunds();
         } catch (Exception e) {
-            // Failure here must not rollback booking
+            // Ignored
         }
-
-        // Assign reward points
-        int points = rewardService.calculateAndLogCarbonPoints(user, ticket, schedule.getRoute().getTotalDistance());
 
         return BookingResponse.builder()
                 .pnrNumber(pnr)
                 .status("CONFIRMED")
-                .totalFare(finalFare)
-                .allocatedSeats(allocatedSeatNames)
-                .carbonPointsEarned(points)
-                .message("Booking completed and payment successful!")
+                .totalFare(totalFare)
+                .allocatedSeats(List.of("Details stored securely in DBMS"))
+                .carbonPointsEarned(carbonPoints)
+                .message("Booking completed successfully via DBMS engine!")
                 .build();
-    }
-
-    private double calculateFare(String seatClass, Double distance) {
-        double dist = (distance != null && distance > 0) ? distance : 500.0;
-        double multiplier = switch (seatClass) {
-            case "1AC" -> 3.5;
-            case "2AC" -> 2.0;
-            case "3AC" -> 1.5;
-            case "SL" -> 0.8;
-            default -> 0.5;
-        };
-        return dist * multiplier;
     }
 }

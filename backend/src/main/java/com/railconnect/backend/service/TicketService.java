@@ -10,7 +10,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
+import org.springframework.jdbc.core.JdbcTemplate;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -23,9 +24,7 @@ public class TicketService {
     private final TicketPassengerRepository ticketPassengerRepository;
     private final CarbonLogRepository carbonLogRepository;
     private final CancellationRepository cancellationRepository;
-    private final SeatRepository seatRepository;
-    private final PaymentRepository paymentRepository;
-    private final BankService bankService;
+    private final JdbcTemplate jdbcTemplate;
 
     @SuppressWarnings("null")
     public List<TicketDetailDto> getTicketsForUser(Long userId) {
@@ -68,39 +67,24 @@ public class TicketService {
             throw new RuntimeException("Access denied: You can only cancel your own tickets");
         }
 
-        // Free all allocated seats
-        List<SeatAllocation> allocations = seatAllocationRepository.findByTicket(ticket);
-        for (SeatAllocation alloc : allocations) {
-            alloc.setStatus("CANCELLED");
-            seatAllocationRepository.save(alloc);
+        // Delegate entire Cancellation, Refund, Waitlist Cursor Loop to Stored Function
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+            "SELECT * FROM fn_cancel_ticket(?, ?)",
+            ticketId,
+            user.getUserId()
+        );
 
-            Seat seat = alloc.getSeat();
-            seat.setStatus("AVAILABLE");
-            seatRepository.save(seat);
+        String errorMsg = (rows != null && !rows.isEmpty()) ? (String) rows.get(0).get("p_err_msg") : null;
+
+        if (errorMsg != null) {
+            throw new RuntimeException("Cancellation Failed by DBMS: " + errorMsg);
         }
 
-        // Calculate 80% refund
-        double refundAmount = (ticket.getTotalFare() != null ? ticket.getTotalFare() : 0.0) * 0.80;
+        // Reload fresh state from DB (since SP updated it)
+        Ticket updatedTicket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new RuntimeException("Ticket missing after cancellation"));
 
-        // Create cancellation record
-        Cancellation cancellation = Cancellation.builder()
-                .ticket(ticket)
-                .refundAmount(refundAmount)
-                .refundStatus(bankService.processRefund(refundAmount))
-                .build();
-        cancellationRepository.save(Objects.requireNonNull(cancellation));
-
-        // Mark ticket as cancelled
-        ticket.setStatus("CANCELLED");
-        ticketRepository.save(ticket);
-
-        // Mark payment as refunded
-        paymentRepository.findByTicket(ticket).ifPresent(p -> {
-            p.setStatus("REFUNDED");
-            paymentRepository.save(p);
-        });
-
-        return buildDetail(ticket, ticket.getUser());
+        return buildDetail(updatedTicket, updatedTicket.getUser());
     }
 
     /** Returns auto-promoted waitlist tickets the user hasn't seen yet. */

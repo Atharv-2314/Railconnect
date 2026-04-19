@@ -183,7 +183,7 @@ DECLARE
         WHERE wq.schedule_id = p_schedule_id ORDER BY wq.position ASC;
     v_waitlist_rec RECORD;
     v_seat_cursor CURSOR FOR
-        SELECT seat_id, class FROM Seat WHERE schedule_id = p_schedule_id AND status = 'AVAILABLE' ORDER BY coach_number, seat_number;
+        SELECT seat_id, class FROM Seat WHERE schedule_id = p_schedule_id AND status = 'AVAILABLE' ORDER BY coach_number, seat_number FOR UPDATE SKIP LOCKED;
     v_route_dist NUMERIC;
     v_pnr TEXT;
     v_fare NUMERIC;
@@ -201,7 +201,12 @@ BEGIN
         FETCH v_seat_cursor INTO v_freed_seat;
         EXIT WHEN NOT FOUND; -- No more free seats
         
-        -- Promote matching pair
+        -- Promote matching pair (with double-check guard to prevent race conditions)
+        PERFORM seat_id FROM Seat WHERE seat_id = v_freed_seat.seat_id AND status = 'AVAILABLE';
+        IF NOT FOUND THEN
+            CONTINUE; -- Seat was already grabbed by a concurrent transaction, skip it
+        END IF;
+
         v_pnr := 'WPNR' || UPPER(SUBSTRING(REPLACE(md5(random()::TEXT || clock_timestamp()::TEXT), '-', ''), 1, 8));
         v_fare := fn_calculate_fare(v_route_dist, v_freed_seat.class);
         

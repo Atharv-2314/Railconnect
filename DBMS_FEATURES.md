@@ -143,8 +143,8 @@ This document is the official technical record of all advanced PostgreSQL constr
 
 All core functions utilize **explicit transaction control** and **pessimistic locking**:
 
-- **`SELECT FOR UPDATE NOWAIT`**: Acquires row-level locks on seats during booking to prevent race conditions. `NOWAIT` immediately returns an error instead of waiting, which allows fast failure and retry.
-- **Atomic Blocks**: All `fn_book_ticket` database writes (7 table operations) occur inside a single implicit transaction block. An exception in any step rolls back all changes automatically.
+- **`SELECT FOR UPDATE SKIP LOCKED`**: Acquires row-level locks on seats during booking and waitlist promotion to prevent race conditions. `SKIP LOCKED` ensures that concurrent transactions never attempt to assign the same seat, providing 100% data integrity under load.
+- **Atomic Blocks**: All `fn_book_ticket` and `fn_cancel_ticket` database writes occur inside a single implicit transaction block. An exception in any step rolls back all changes automatically.
 - **Deadlock Prevention**: Seat locks are acquired in a deterministic order (by array index) to prevent circular wait conditions between concurrent transactions.
 
 ---

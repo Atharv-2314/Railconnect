@@ -122,14 +122,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Step 2: Attach trigger to Cancellation table
---   DROP first so this file is idempotent (safe to re-run)
+-- Step 2: DISABLED — Promotion is now handled explicitly inside fn_cancel_ticket
+-- to prevent double-promotion. The trigger below is intentionally commented out.
+-- DROP TRIGGER IF EXISTS trg_waitlist_promotion ON Cancellation;
+-- CREATE TRIGGER trg_waitlist_promotion
+--     AFTER INSERT ON Cancellation
+--     FOR EACH ROW
+--     EXECUTE FUNCTION promote_waitlist_on_cancel();
 DROP TRIGGER IF EXISTS trg_waitlist_promotion ON Cancellation;
-
-CREATE TRIGGER trg_waitlist_promotion
-    AFTER INSERT ON Cancellation
-    FOR EACH ROW
-    EXECUTE FUNCTION promote_waitlist_on_cancel();
 
 -- =============================================================
 -- Reporting / Admin VIEW: Booking Summary per user

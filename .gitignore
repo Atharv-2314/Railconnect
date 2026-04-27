@@ -1,0 +1,60 @@
+# --- IDEs and Editors ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+.factorypath
+
+# --- OS Specific ---
+Thumbs.db
+db.db
+Desktop.ini
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# --- Java / Spring Boot (Backend) ---
+backend/.gradle/
+backend/build/
+backend/bin/
+backend/out/
+backend/.settings/
+backend/.classpath
+backend/.project
+backend/*.log
+backend/target/
+backend/.nb-gradle/
+
+# --- Node / React (Frontend) ---
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.env
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/.pnpm-debug.log*
+
+# --- Project Specific ---
+*.log
+.temp/
+tmp/
+out/
+build/
+dist/
+
+# --- Database ---
+# Un-comment if you want to ignore SQL dumps or large data files
+# *.sql
+# !schema.sql
+# !data-seed.sql
